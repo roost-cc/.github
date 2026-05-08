@@ -1,0 +1,260 @@
+name: Reusable CI
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        description: "Language toolchain to set up. One of: python, node, go."
+        type: string
+        required: true
+      version:
+        description: >-
+          Toolchain version. Falls back to a per-language default if empty:
+          python=3.12, node=20, go=1.22.
+        type: string
+        required: false
+        default: ""
+      working-directory:
+        description: "Directory to run lint/typecheck/test commands in."
+        type: string
+        required: false
+        default: "."
+      run-tests:
+        description: "Whether to run the test step. Set to false for repos without tests yet."
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  precommit:
+    name: pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Python (for pre-commit)
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Detect pre-commit config
+        id: detect
+        shell: bash
+        run: |
+          if [ -f .pre-commit-config.yaml ] || [ -f .pre-commit-config.yml ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No .pre-commit-config.yaml found — skipping pre-commit run."
+          fi
+
+      - name: Install pre-commit
+        if: steps.detect.outputs.present == 'true'
+        run: pip install pre-commit
+
+      - name: Run pre-commit
+        if: steps.detect.outputs.present == 'true'
+        run: pre-commit run --all-files --show-diff-on-failure
+
+  lint-typecheck-test:
+    name: lint / typecheck / test (${{ inputs.language }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # ---------- Python ----------
+      - name: Set up Python
+        if: inputs.language == 'python'
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ inputs.version != '' && inputs.version || '3.12' }}
+          cache: pip
+          cache-dependency-path: |
+            ${{ inputs.working-directory }}/pyproject.toml
+            ${{ inputs.working-directory }}/uv.lock
+            ${{ inputs.working-directory }}/requirements*.txt
+
+      - name: Install Python project (uv if uv.lock present, else pip)
+        if: inputs.language == 'python'
+        shell: bash
+        run: |
+          if [ -f uv.lock ]; then
+            pip install uv
+            uv sync --all-extras --dev
+          else
+            pip install -e '.[dev]' || pip install -e .
+          fi
+
+      - name: ruff check
+        if: inputs.language == 'python'
+        shell: bash
+        run: |
+          if command -v ruff >/dev/null 2>&1; then
+            ruff check .
+          elif [ -f uv.lock ]; then
+            uv run ruff check .
+          else
+            python -m ruff check .
+          fi
+
+      - name: ruff format --check
+        if: inputs.language == 'python'
+        shell: bash
+        run: |
+          if command -v ruff >/dev/null 2>&1; then
+            ruff format --check .
+          elif [ -f uv.lock ]; then
+            uv run ruff format --check .
+          else
+            python -m ruff format --check .
+          fi
+
+      - name: mypy
+        if: inputs.language == 'python'
+        shell: bash
+        run: |
+          if command -v mypy >/dev/null 2>&1; then
+            mypy .
+          elif [ -f uv.lock ]; then
+            uv run mypy .
+          else
+            python -m mypy .
+          fi
+
+      - name: pytest --cov
+        if: inputs.language == 'python' && inputs.run-tests
+        shell: bash
+        run: |
+          if [ -f uv.lock ]; then
+            uv run pytest --cov --cov-report=xml
+          else
+            pytest --cov --cov-report=xml
+          fi
+
+      # ---------- Node ----------
+      - name: Set up Node
+        if: inputs.language == 'node'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ inputs.version != '' && inputs.version || '20' }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+      - name: npm ci
+        if: inputs.language == 'node'
+        run: npm ci
+
+      - name: npm run lint
+        if: inputs.language == 'node'
+        shell: bash
+        run: |
+          if jq -e '.scripts.lint' package.json >/dev/null 2>&1; then
+            npm run lint
+          else
+            echo "::notice::No 'lint' script in package.json — skipping."
+          fi
+
+      - name: npm run typecheck
+        if: inputs.language == 'node'
+        shell: bash
+        run: |
+          if jq -e '.scripts.typecheck' package.json >/dev/null 2>&1; then
+            npm run typecheck
+          else
+            echo "::notice::No 'typecheck' script in package.json — skipping."
+          fi
+
+      - name: npm test -- --coverage
+        if: inputs.language == 'node' && inputs.run-tests
+        shell: bash
+        run: |
+          if jq -e '.scripts.test' package.json >/dev/null 2>&1; then
+            npm test -- --coverage
+          else
+            echo "::notice::No 'test' script in package.json — skipping."
+          fi
+
+      # ---------- Go ----------
+      - name: Set up Go
+        if: inputs.language == 'go'
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ inputs.version != '' && inputs.version || '1.22' }}
+          cache: true
+          cache-dependency-path: ${{ inputs.working-directory }}/go.sum
+
+      - name: go vet
+        if: inputs.language == 'go'
+        run: go vet ./...
+
+      - name: staticcheck
+        if: inputs.language == 'go'
+        shell: bash
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck ./...
+
+      - name: go test -race -cover
+        if: inputs.language == 'go' && inputs.run-tests
+        run: go test -race -coverprofile=coverage.out ./...
+
+      # ---------- Coverage upload ----------
+      - name: Upload coverage artifact
+        if: inputs.run-tests && always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-${{ inputs.language }}
+          if-no-files-found: ignore
+          path: |
+            ${{ inputs.working-directory }}/coverage.xml
+            ${{ inputs.working-directory }}/coverage/lcov.info
+            ${{ inputs.working-directory }}/coverage.out
+
+  pr-title:
+    name: PR title (Conventional Commits)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Validate PR title
+        uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  coverage-report:
+    name: coverage report
+    needs: lint-typecheck-test
+    if: inputs.run-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download coverage artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          name: coverage-${{ inputs.language }}
+          path: coverage-artifact
+      - name: Summarize coverage presence
+        shell: bash
+        run: |
+          if [ -d coverage-artifact ] && [ -n "$(ls -A coverage-artifact 2>/dev/null)" ]; then
+            echo "## Coverage" >> "$GITHUB_STEP_SUMMARY"
+            echo "Coverage artifact uploaded for ${{ inputs.language }}." >> "$GITHUB_STEP_SUMMARY"
+            ls -la coverage-artifact >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::notice::No coverage artifact produced (project may not emit one)."
+          fi

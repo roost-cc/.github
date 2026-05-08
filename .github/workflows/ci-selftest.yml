@@ -1,0 +1,64 @@
+name: ci-selftest
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/ci-selftest.yml"
+      - "selftest/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/ci-selftest.yml"
+      - "selftest/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Run actionlint
+        shell: bash
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) 1.7.4
+          ./actionlint -color .github/workflows/ci.yml .github/workflows/ci-selftest.yml
+
+  selftest-python:
+    name: selftest python
+    needs: actionlint
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      language: python
+      working-directory: selftest/python
+
+  selftest-node:
+    name: selftest node
+    needs: actionlint
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      language: node
+      working-directory: selftest/node
+
+  selftest-go:
+    name: selftest go
+    needs: actionlint
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      language: go
+      working-directory: selftest/go
