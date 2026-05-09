@@ -95,7 +95,11 @@ jobs:
             pip install uv
             uv sync --all-extras --dev
           else
-            pip install -e '.[dev]' || pip install -e .
+            # The README contract requires pyproject.toml to declare ruff,
+            # mypy, and pytest under [project.optional-dependencies].dev.
+            # Fail loudly if [dev] extras are missing rather than silently
+            # falling back to a non-dev install (which would skip linters).
+            pip install -e '.[dev]'
           fi
 
       - name: ruff check
@@ -203,8 +207,14 @@ jobs:
       - name: staticcheck
         if: inputs.language == 'go'
         shell: bash
+        # staticcheck version is pinned so a silent upstream change can't
+        # turn a green build red. Bump in lock-step with Renovate or by
+        # hand; Renovate's `gomod`/`go-version` managers do not cover
+        # `go install` invocations, so this is a manual update for now.
+        env:
+          STATICCHECK_VERSION: "2026.1"
         run: |
-          go install honnef.co/go/tools/cmd/staticcheck@latest
+          go install "honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION}"
           staticcheck ./...
 
       - name: go test -race -cover
@@ -252,9 +262,11 @@ jobs:
         shell: bash
         run: |
           if [ -d coverage-artifact ] && [ -n "$(ls -A coverage-artifact 2>/dev/null)" ]; then
-            echo "## Coverage" >> "$GITHUB_STEP_SUMMARY"
-            echo "Coverage artifact uploaded for ${{ inputs.language }}." >> "$GITHUB_STEP_SUMMARY"
-            ls -la coverage-artifact >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "## Coverage"
+              echo "Coverage artifact uploaded for ${{ inputs.language }}."
+              ls -la coverage-artifact
+            } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "::notice::No coverage artifact produced (project may not emit one)."
           fi

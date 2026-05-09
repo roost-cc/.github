@@ -26,8 +26,13 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Run actionlint
         shell: bash
+        # Both the installer script and the binary version are pinned to
+        # the same tag so a compromised `main` of rhysd/actionlint can't
+        # inject code into the CI environment. Bump both together.
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
         run: |
-          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) 1.7.4
+          bash <(curl -fsSL "https://raw.githubusercontent.com/rhysd/actionlint/v${ACTIONLINT_VERSION}/scripts/download-actionlint.bash") "${ACTIONLINT_VERSION}"
           ./actionlint -color .github/workflows/ci.yml .github/workflows/ci-selftest.yml
 
   selftest-python:

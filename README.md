@@ -78,9 +78,13 @@ The workflow runs:
 - `pytest --cov --cov-report=xml`
 
 The consumer repo must have a `pyproject.toml` declaring `ruff`, `mypy`,
-and `pytest` as dev dependencies. If a `uv.lock` is present the workflow
-uses `uv sync --all-extras --dev` and runs commands via `uv run`;
-otherwise it falls back to `pip install -e '.[dev]'`. Coverage is emitted
+and `pytest` as dev dependencies under `[project.optional-dependencies]`
+named `dev`. If a `uv.lock` is present the workflow uses
+`uv sync --all-extras --dev` and runs commands via `uv run`; otherwise
+it runs `pip install -e '.[dev]'`. The `[dev]` extras are required —
+the workflow does not silently fall back to a non-dev install, so a
+missing `dev` extras group is surfaced as a clear pip resolution error
+rather than a downstream `ruff: command not found`. Coverage is emitted
 to `coverage.xml`.
 
 #### Node (`language: node`)
@@ -103,8 +107,10 @@ is the consumer's choice (Jest, c8, vitest, etc.) — emit to
 The workflow runs:
 
 - `go vet ./...`
-- `staticcheck ./...` (installed at job time via `go install
-honnef.co/go/tools/cmd/staticcheck@latest`)
+- `staticcheck ./...` (installed at job time via
+  `go install honnef.co/go/tools/cmd/staticcheck@<pinned version>`;
+  the version is pinned in `ci.yml` and bumped manually since Renovate
+  doesn't manage `go install` invocations)
 - `go test -race -coverprofile=coverage.out ./...`
 
 ### Action SHA pinning
