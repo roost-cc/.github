@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# shared-config `gitleaks` hook: scan staged changes with the shared gitleaks config.
+# If the repo has its own .gitleaks.toml and the hook runs from the repo's .rrepo-shared/ copy,
+# the hook uses it, and that file must extend the shared gitleaks config (`[extend] path`), so
+# gitleaks merges the shared gitleaks config's rules and allowlist with the repo's own (S-570).
+# Requires the gitleaks binary on PATH (see README "Prerequisites").
+set -euo pipefail
+
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BASELINE="$HOOK_DIR/gitleaks.toml"
+CONFIG="$BASELINE"
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "shared-config/gitleaks: 'gitleaks' not found on PATH." >&2
+  echo "Install it first: 'apt install gitleaks', 'brew install gitleaks', or" >&2
+  echo "https://github.com/gitleaks/gitleaks#installing" >&2
+  exit 1
+fi
+
+# pre-commit runs hooks from the repo root. gitleaks reads `[extend] path` relative to the
+# working directory, and so does the `-ef` test below.
+#
+# The hook uses the repo's .gitleaks.toml only when it runs from the repo's own copy in
+# .rrepo-shared/. A repo that still pins the remote shared-config block runs this hook from a
+# pre-commit cache clone, outside the repo or inside it (a PRE_COMMIT_HOME in the workspace).
+# No repo file can name that cache path in `[extend] path`, so there the hook ignores the
+# repo's .gitleaks.toml and scans with the baseline alone, as it did before S-570. The repo's
+# rollout copies the hooks into .rrepo-shared/, and then the file is used.
+if [[ "$HOOK_DIR" -ef .rrepo-shared && -f .gitleaks.toml ]]; then
+  # A file Python cannot read, or a Python older than 3.11 (no tomllib), ends in one line on
+  # stderr and exit 1, never a traceback.
+  EXTENDS="$(python3 -c 'import sys
+try:
+    import tomllib
+    with open(sys.argv[1], "rb") as f:
+        extend = tomllib.load(f).get("extend", {})
+except ImportError:
+    sys.exit("shared-config/gitleaks: reading .gitleaks.toml needs Python 3.11 or later (tomllib).")
+except Exception as err:
+    sys.exit(f"shared-config/gitleaks: cannot read .gitleaks.toml: {err}")
+print(extend.get("path", "") if isinstance(extend, dict) else "")' .gitleaks.toml)"
+  if [[ -z "$EXTENDS" || ! "$EXTENDS" -ef "$BASELINE" ]]; then
+    echo "shared-config/gitleaks: .gitleaks.toml does not extend the shared baseline," >&2
+    echo "so the hook would drop the baseline's rules and allowlist. Make its [extend] table:" >&2
+    echo "  [extend]" >&2
+    echo "  path = \"${BASELINE#"$PWD"/}\"" >&2
+    exit 1
+  fi
+  CONFIG=.gitleaks.toml
+fi
+
+# gitleaks >= 8.19 replaced `protect --staged` with `git --pre-commit --staged`.
+# Support both so consumers can use either a distro package or a recent release.
+if gitleaks git --help >/dev/null 2>&1; then
+  exec gitleaks git --pre-commit --staged --redact --no-banner --config "$CONFIG"
+else
+  exec gitleaks protect --staged --redact --no-banner --config "$CONFIG"
+fi
