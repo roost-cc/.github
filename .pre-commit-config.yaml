@@ -1,0 +1,103 @@
+# .pre-commit-config.yaml
+
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+default_stages: [pre-commit]
+repos:
+  # ── Shared Roost baseline (vendored, repo: local) ──
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks (shared-config)
+        entry: .rrepo-shared/bin/run-gitleaks
+        language: script
+        exclude: ^\.rrepo-shared/
+        stages: [pre-commit]
+        pass_filenames: false
+        always_run: true
+      - id: ruff
+        name: ruff check (shared-config)
+        entry: .rrepo-shared/bin/run-ruff
+        language: script
+        types_or: [python, pyi]
+        require_serial: true
+        exclude: ^\.rrepo-shared/
+        stages: [pre-commit]
+      - id: ruff-format
+        name: ruff format (shared-config)
+        entry: .rrepo-shared/bin/run-ruff-format
+        language: script
+        types_or: [python, pyi]
+        require_serial: true
+        exclude: ^\.rrepo-shared/
+        stages: [pre-commit]
+      - id: prettier
+        name: prettier (shared-config)
+        entry: prettier --config .rrepo-shared/prettier.config.cjs --ignore-unknown --write
+        language: node
+        types_or: [javascript, jsx, ts, tsx, css, scss, json, yaml, markdown, html]
+        additional_dependencies: [prettier@3.9.10]
+        exclude: ^\.rrepo-shared/
+        stages: [pre-commit]
+      - id: file-hygiene
+        name: file hygiene (shared-config)
+        entry: .rrepo-shared/bin/run-file-hygiene
+        language: script
+        types_or:
+          - javascript
+          - jsx
+          - ts
+          - tsx
+          - json
+          - markdown
+          - html
+          - python
+          - pyi
+          - shell
+          - xml
+          - svg
+          - plain-text
+          - css
+          - scss
+          - yaml
+          - toml
+          - dockerfile
+          - gitignore
+          - gitattributes
+          - editorconfig
+          - prettierignore
+          - dotenv
+          - gitmodules
+        exclude: ^\.rrepo-shared/
+        stages: [pre-commit]
+      - id: large-files
+        name: large files (shared-config)
+        entry: .rrepo-shared/bin/run-file-hygiene --size-only
+        language: script
+        types: [file]
+        exclude: ^\.rrepo-shared/
+        stages: [pre-commit]
+      - id: commitlint
+        name: commitlint (shared-config)
+        entry: commitlint --config .rrepo-shared/commitlint.config.cjs --edit
+        language: node
+        additional_dependencies: ['@commitlint/cli@21.2.4', '@commitlint/config-conventional@21.2.4']
+        exclude: ^\.rrepo-shared/
+        stages: [commit-msg]
+
+  # ── Local CI gate (pre-push) ──
+  - repo: local
+    hooks:
+      - id: rrepo-check
+        name: rrepo check (repo standard)
+        entry: bash -c 'exec "${ROOST_DIR:?ROOST_DIR must be set for the rrepo check — export ROOST_DIR=/path/to/roost}/tools/bin/rrepo" check --allow-behind .'
+        language: system
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false
+      - id: ci-gate
+        name: ci gate (local pre-push gate)
+        entry: bash -c 'exec "${ROOST_DIR:?ROOST_DIR must be set for the pre-push CI gate — export ROOST_DIR=/path/to/roost}/ci-cd/bin/ci" gate --target local --platform linux/amd64'
+        language: system
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false

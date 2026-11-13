@@ -1,0 +1,19 @@
+# Roost shared gitleaks config.
+#
+# Extends the built-in default ruleset with NO broad allowlists. Repo-specific
+# false positives stay in the consumer repo (via pre-commit `exclude:` or the
+# repo's own .gitleaks.toml) until a finding is proven globally safe — only
+# then does an allowlist entry graduate into this file.
+#
+# The `gitleaks` hook (bin/run-gitleaks) scans with this file. If the repo has
+# its own .gitleaks.toml and the hook runs from the repo's .rrepo-shared/ copy
+# (copied hooks), the hook scans with that file instead, and it must name this
+# one in `[extend] path` (`.rrepo-shared/gitleaks.toml`). gitleaks then keeps
+# these rules and this allowlist and adds the repo's own. From a pre-commit
+# cache clone the hook ignores the repo's file. See README "A repo's own
+# gitleaks config".
+
+title = "roost shared-config gitleaks baseline"
+
+[extend]
+useDefault = true
