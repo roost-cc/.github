@@ -9,9 +9,10 @@
   - YAML syntax — *.yaml / *.yml (requires PyYAML)
   - JSON syntax — *.json
 
-`large-files` (`--size-only`) runs on every file. It refuses a file over
---max-kb (default 500) unless the same path is already over the limit at HEAD.
-With no HEAD, every file over the limit is refused.
+`large-files` (`--size-only`) lists the staged files itself and checks every
+regular one, so a repo's top-level `exclude:` cannot skip it. It refuses a file
+over --max-kb (default 500) unless the same path is already over the limit at
+HEAD. With no HEAD, every file over the limit is refused.
 
 Exit code is non-zero when any problem is found, including problems that were
 auto-fixed (pre-commit convention: a fixing hook fails so the user re-stages).
@@ -46,6 +47,18 @@ def head_size_kb(path: str) -> float | None:
         ["git", "cat-file", "-s", f"HEAD:{path}"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
     )
     return int(result.stdout) / 1024 if result.returncode == 0 else None
+
+
+def staged_files() -> list[str]:
+    """Every staged path that is a regular file: no deletion, symlink or submodule.
+
+    `-z` keeps each name as git stores it; os.fsdecode keeps a non-UTF-8 name intact.
+    """
+    result = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "-z", "--diff-filter=d"], stdout=subprocess.PIPE, check=True
+    )
+    paths = [os.fsdecode(name) for name in result.stdout.split(b"\0") if name]
+    return [path for path in paths if os.path.isfile(path) and not os.path.islink(path)]
 
 
 def check_large(path: str, max_kb: int, problems: list[str]) -> None:
@@ -145,15 +158,18 @@ def process(path: str, problems: list[str]) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--max-kb", type=int, default=500, help="large-file limit in kB (default: 500)")
-    parser.add_argument("--size-only", action="store_true", help="check only the size (the large-files hook)")
-    parser.add_argument("filenames", nargs="*", help="files to check (provided by pre-commit)")
+    parser.add_argument(
+        "--size-only", action="store_true", help="check only the size of every staged file (the large-files hook)"
+    )
+    parser.add_argument("filenames", nargs="*", help="files to check (provided by pre-commit; not with --size-only)")
     args = parser.parse_args(argv)
 
     problems: list[str] = []
-    for path in args.filenames:
-        if args.size_only:
+    if args.size_only:
+        for path in staged_files():
             check_large(path, args.max_kb, problems)
-        else:
+    else:
+        for path in args.filenames:
             process(path, problems)
 
     # A file name need not be UTF-8: write its original bytes back, whatever the locale.

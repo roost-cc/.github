@@ -87,7 +87,7 @@
   stages: [pre-commit]
   minimum_pre_commit_version: 3.2.0
 
-# Every file: refuse a staged file over 500 kB unless the same path is already
+# Every staged file: refuse one over 500 kB unless the same path is already
 # over 500 kB at HEAD (an existing large file may change; a new or newly large
 # one may not). With no HEAD, every file over 500 kB is refused.
 - id: large-files
@@ -95,7 +95,10 @@
   description: Refuse a new file over 500 kB, or a file that grows over 500 kB.
   entry: bin/run-file-hygiene --size-only
   language: script
-  types: [file]
+  pass_filenames: false
+  # The hook lists the staged files itself, so it must run even when every
+  # staged path is excluded by the consumer's filters, like gitleaks (S-1555).
+  always_run: true
   stages: [pre-commit]
   minimum_pre_commit_version: 3.2.0
 

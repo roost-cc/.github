@@ -73,9 +73,10 @@ repos:
         name: large files (shared-config)
         entry: .rrepo-shared/bin/run-file-hygiene --size-only
         language: script
-        types: [file]
         exclude: ^\.rrepo-shared/
         stages: [pre-commit]
+        pass_filenames: false
+        always_run: true
       - id: commitlint
         name: commitlint (shared-config)
         entry: commitlint --config .rrepo-shared/commitlint.config.cjs --edit

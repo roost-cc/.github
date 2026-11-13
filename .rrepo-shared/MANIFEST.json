@@ -1,6 +1,6 @@
 {
   "source": "roost-cc/shared-config",
-  "rev": "v0.1.3",
+  "rev": "v0.1.4",
   "files": [
     ".pre-commit-hooks.yaml",
     "bin/file_hygiene.py",
